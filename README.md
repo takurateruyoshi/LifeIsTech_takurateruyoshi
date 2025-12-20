@@ -52,20 +52,6 @@ HTTPS=true npm start
 * SSL通信(https通信)の有効化と実行
     * HTTPS=true npm start
 
-# ngrokの操作方法
-
-https://dashboard.ngrok.com
-* ngrokをHomeberwにインストール
-    * brew install ngrok
-* ngrokを構成ファイルに追加
-    * これは実行する人固有のコードなので自分でアカウント登録する必要がある
-    * ngrok config add-authtoken 36XbM4tZwMC6QZY9dJI16FJ0wJa_6622KACDFELoAqhiRH8vW
-* ngrokを実行
-    * 実行するとターミナルがngrokの画面になるので左のボタンからターミナルを開き他の操作を実行する必要がある
-    * ngrok http 8000
-* 起動時に必要な操作
-    * 毎回新しいリンクが生成されるのでmain.pyのCORS設定(アクセスを許可するリンク)に追加する。
-
 # DB
                
 # 環境変数の読み込み

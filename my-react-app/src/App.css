@@ -1,0 +1,73 @@
+.App {
+  text-align: center;
+}
+
+.App-logo {
+  height: 40vmin;
+  pointer-events: none;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .App-logo {
+    animation: App-logo-spin infinite 20s linear;
+  }
+}
+
+.App-header {
+  background-color: #282c34;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  font-size: calc(10px + 2vmin);
+  color: white;
+}
+
+.App-link {
+  color: #61dafb;
+}
+
+@keyframes App-logo-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* src/App.css */
+body {
+  background-color: #f8faff; /* 優しい薄い青 */
+  margin: 0;
+  font-family: 'Helvetica Neue', Arial, sans-serif;
+  color: #333;
+}
+
+/* カードの角を丸くして影をつける */
+.MuiPaper-root {
+  border-radius: 16px !important;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.05) !important;
+  border: none !important;
+}
+
+/* ボタンを丸く、グラデーションに */
+.MuiButton-contained {
+  border-radius: 50px !important;
+  background: linear-gradient(45deg, #4facfe 0%, #00f2fe 100%) !important;
+  text-transform: none !important;
+  font-weight: bold !important;
+  padding: 10px 24px !important;
+}
+
+/* 入力エリアのスタイル */
+.MuiTextField-root {
+  background-color: white;
+  border-radius: 12px;
+}
+
+/* レイアウトの微調整 */
+.container {
+  padding-bottom: 100px; /* モーダルと被らないように余白 */
+}
