@@ -1,11 +1,23 @@
-from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
-from typing import List, Dict
+import os
 import datetime
+import json
+from google import genai
+from fastapi import FastAPI, HTTPException, Header, Depends, Request
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from pydantic import BaseModel
+from typing import Dict, Optional, List
+from supabase import create_client, Client
+from dotenv import load_dotenv
+from pathlib import Path
+
+# --- 初期設定 ---
+current_dir = Path(__file__).parent.absolute()
+load_dotenv(current_dir / '.env')
 
 app = FastAPI()
 
+# CORS設定
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -14,92 +26,120 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# --- ユーザー情報の追加 ---
-# ログイン中のユーザーをシミュレート
-mock_user = {
-    "name": "寺良 拓海",  # パスから推測したお名前の例です
-    "email": "takumi.teraya@example.com",
-    "avatar_url": "" 
-}
+# --- 設定読み込み ---
+SUPABASE_URL = os.environ.get("SUPABASE_URL")
+SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
+GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
+
+# クライアント初期化
+supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
+client_ai = genai.Client(api_key=GOOGLE_API_KEY) if GOOGLE_API_KEY else None
+
+print(f"--- 起動診断 ---")
+print(f"Supabase: {'✅OK' if SUPABASE_URL else '❌NG'}")
+print(f"Gemini:   {'✅OK' if GOOGLE_API_KEY else '❌NG'}")
+print(f"----------------")
+
+# --- モデル定義 ---
+class AuthRequest(BaseModel):
+    email: str
+    password: str
+    username: Optional[str] = None
+
+class AnalysisRequest(BaseModel):
+    text: str
+
+# --- 認証共通処理 ---
+async def get_current_user_id(request: Request):
+    auth_header = request.headers.get("Authorization")
+    if not auth_header:
+        raise HTTPException(status_code=401, detail="No authorization header")
+    try:
+        token = auth_header.split(' ')[1]
+        user_resp = supabase.auth.get_user(token)
+        # バージョンにより user_resp.user か user_resp なので getattr で安全に取得
+        user = getattr(user_resp, 'user', user_resp)
+        return user.id
+    except Exception as e:
+        print(f"Auth Error: {e}")
+        raise HTTPException(status_code=401, detail="Invalid session")
+
+# --- APIエンドポイント ---
+
+@app.post("/api/auth/signup")
+async def signup_user(req: AuthRequest):
+    print(f"\n--- SIGNUP PROCESS START ---")
+    try:
+        # 1. Auth登録 (個別に詳細ログを出す)
+        print("DEBUG: Calling supabase.auth.sign_up...")
+        try:
+            res = supabase.auth.sign_up({
+                "email": req.email, 
+                "password": req.password,
+                "options": {"data": {"username": req.username}}
+            })
+            print(f"DEBUG: Auth success, User ID: {res.user.id if res.user else 'None'}")
+        except Exception as auth_err:
+            print(f"!!! AUTH ERROR DETAIL !!!: {auth_err}")
+            # エラーオブジェクトの中身を分解して表示
+            if hasattr(auth_err, 'message'): print(f"Msg: {auth_err.message}")
+            raise HTTPException(status_code=400, detail=f"認証エラー: {str(auth_err)}")
+
+        # 2. DB保存
+        if res.user:
+            try:
+                print("DEBUG: Inserting into public.users table...")
+                supabase.table("users").upsert({
+                    "id": res.user.id,
+                    "username": req.username,
+                    "email": req.email
+                }).execute()
+            except Exception as db_err:
+                print(f"!!! DB ERROR DETAIL !!!: {db_err}")
+                raise HTTPException(status_code=500, detail=f"DB保存エラー: {str(db_err)}")
+
+        return {"user_id": res.user.id, "session": res.session if hasattr(res, 'session') else None}
+
+    except HTTPException as he:
+        raise he
+    except Exception as e:
+        print(f"GENERAL ERROR: {str(e)}")
+        # ここで「Database error saving new user」が出る場合、
+        # supabase-pyの内部的なバリデーションエラーです
+        raise HTTPException(status_code=400, detail=f"システムエラー: {str(e)}")
+    
+@app.post("/api/auth/signin")
+async def signin_user(req: AuthRequest):
+    try:
+        res = supabase.auth.sign_in_with_password({"email": req.email, "password": req.password})
+        username = "User"
+        if res.user:
+            user_data = supabase.table('users').select('username').eq('id', res.user.id).execute()
+            username = user_data.data[0].get('username') if user_data.data else "User"
+        session_data = {"access_token": res.session.access_token} if res.session else None
+        return {"session": session_data, "username": username, "email": res.user.email}
+    except Exception as e:
+        raise HTTPException(status_code=401, detail="Login failed")
 
 @app.get("/api/user")
-def get_user():
-    return mock_user
-
-# 12要素の初期データ構造定義
-class SkillScores(BaseModel):
-    initiative: int
-    influence: int
-    execution: int
-    problem_solving: int
-    planning: int
-    creativity: int
-    communication: int
-    listening: int
-    flexibility: int
-    situation_awareness: int
-    discipline: int
-    stress_control: int
-
-# 履歴データのモック（5回分の成長記録）
-mock_db = [
-    {
-        "id": 1, "date": "2025-12-01", "title": "初期診断",
-        "scores": {
-            "initiative": 2, "influence": 1, "execution": 2, "problem_solving": 3, "planning": 2, "creativity": 3,
-            "communication": 2, "listening": 3, "flexibility": 3, "situation_awareness": 2, "discipline": 4, "stress_control": 2
-        }
-    },
-    {
-        "id": 2, "date": "2025-12-09", "title": "ゼミの発表準備",
-        "scores": {
-            "initiative": 3, "influence": 2, "execution": 3, "problem_solving": 3, "planning": 3, "creativity": 3,
-            "communication": 3, "listening": 4, "flexibility": 3, "situation_awareness": 3, "discipline": 4, "stress_control": 3
-        }
-    },
-    {
-        "id": 3, "date": "2025-12-15", "title": "バイトのリーダー代行",
-        "scores": {
-            "initiative": 4, "influence": 3, "execution": 4, "problem_solving": 4, "planning": 3, "creativity": 3,
-            "communication": 3, "listening": 4, "flexibility": 4, "situation_awareness": 4, "discipline": 4, "stress_control": 3
-        }
-    },
-    {
-        "id": 4, "date": "2025-12-22", "title": "サークル合宿の企画",
-        "scores": {
-            "initiative": 4, "influence": 4, "execution": 4, "problem_solving": 4, "planning": 5, "creativity": 4,
-            "communication": 4, "listening": 5, "flexibility": 4, "situation_awareness": 5, "discipline": 5, "stress_control": 4
-        }
-    },
-    {
-        "id": 5, "date": "2025-12-29", "title": "最終プレゼン完遂",
-        "scores": {
-            "initiative": 5, "influence": 4, "execution": 5, "problem_solving": 5, "planning": 5, "creativity": 4,
-            "communication": 5, "listening": 5, "flexibility": 5, "situation_awareness": 5, "discipline": 5, "stress_control": 5
-        }
-    }
-]
-
-@app.get("/api/history")
-def get_history():
-    return mock_db
+async def get_user(user_id: str = Depends(get_current_user_id)):
+    res = supabase.table("users").select("*").eq("id", user_id).execute()
+    if not res.data: return {"id": user_id, "username": "User", "email": ""}
+    return res.data[0]
 
 @app.post("/api/analyze")
-def analyze_episode(payload: Dict):
-    # フロントエンドの期待値に合わせてレスポンスを構成
-    analysis_result = {
-        "summary": "チームの課題を冷静に分析し、計画的に行動できています。",
-        "scores": {
-            "initiative": 4, "influence": 3, "execution": 5,
-            "problem_solving": 4, "planning": 5, "creativity": 2,
-            "communication": 3, "listening": 5, "flexibility": 4,
-            "situation_awareness": 5, "discipline": 4, "stress_control": 3
-        },
-        "feedback": "傾聴力と状況把握力が非常に高いです。周囲の意見をまとめつつ計画を完遂する力は大きな武器になります。",
-        "growth_diff": "+12%"
-    }
-    return analysis_result
+async def analyze_episode(req: AnalysisRequest, user_id: str = Depends(get_current_user_id)):
+    if not client_ai: raise HTTPException(status_code=500, detail="Gemini key missing")
+    prompt = f"以下のエピソードをキャリア分析しJSONで返せ: {req.text}"
+    try:
+        response = client_ai.models.generate_content(model="gemini-1.5-flash", contents=prompt, config={'response_mime_type': 'application/json'})
+        ai_data = json.loads(response.text)
+        supabase.table("history").insert({"user_id": user_id, "date": str(datetime.date.today()), "title": req.text[:15], "scores": ai_data.get("scores"), "summary": ai_data.get("summary"), "feedback": ai_data.get("feedback")}).execute()
+        return ai_data
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
-@app.post("/api/generate-es")
-def generate_es(payload: Dict):
-    return {"content": "【自己PR】私の強みは、周囲の状況を的確に把握し、チームを調和させる『状況把握力』と『傾聴力』です。..."}
+@app.get("/api/history")
+async def get_history(user_id: str = Depends(get_current_user_id)):
+    res = supabase.table("history").select("*").eq("user_id", user_id).order("created_at", desc=True).execute()
+    return res.data
