@@ -159,7 +159,7 @@ async def analyze_episode(req: AnalysisRequest, user_id: str = Depends(get_curre
         supabase.table("history").insert({
             "user_id": user_id,
             "date": str(datetime.date.today()),
-            "title": req.text[:15],
+            "title": req.text,
             "summary": ai_data.get("summary"),
             "scores": ai_data.get("scores"),
             "feedback": ai_data.get("feedback"),
