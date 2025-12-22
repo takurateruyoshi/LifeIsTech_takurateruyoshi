@@ -23,6 +23,21 @@ const SKILL_MAP = {
     }
 };
 
+const INDIVIDUAL_COLORS = {
+    '主体性': '#FF8042', 
+    '働きかけ力': '#FFBB28', 
+    '実行力': '#FF6B6B',
+    '課題発見力': '#00C49F', 
+    '計画力': '#0088FE', 
+    '創造力': '#8884d8',
+    '発信力': '#82ca9d', 
+    '傾聴力': '#a4de6c', 
+    '柔軟性': '#d0ed57', 
+    '情況把握力': '#ffc658', 
+    '規律性': '#8dd1e1', 
+    'ストレスコントロール力': '#83a6ed'
+};
+
 const skillDescriptions = {
     '前に踏み出す力': '一歩前に踏み出し、失敗を恐れず行動する力。',
     '考え抜く力': '疑問を持ち、考え抜く力。',
@@ -43,17 +58,12 @@ const skillDescriptions = {
 
 const toFiveStep = (score) => (score / 20).toFixed(1);
 
-// カテゴリ名またはスキル名から色を取得する
 const getSkillColor = (name) => {
-    // カテゴリ名との一致を確認
+    if (INDIVIDUAL_COLORS[name]) return INDIVIDUAL_COLORS[name];
     if (name === SKILL_MAP.action.label) return SKILL_MAP.action.color;
     if (name === SKILL_MAP.thinking.label) return SKILL_MAP.thinking.color;
     if (name === SKILL_MAP.teamwork.label) return SKILL_MAP.teamwork.color;
-
-    // スキル名が含まれるか確認
-    if (SKILL_MAP.action.skills.includes(name)) return SKILL_MAP.action.color;
-    if (SKILL_MAP.thinking.skills.includes(name)) return SKILL_MAP.thinking.color;
-    return SKILL_MAP.teamwork.color;
+    return "#64748b"; 
 };
 
 const Dashboard = () => {
@@ -76,42 +86,31 @@ const Dashboard = () => {
         return history[0]?.scores || {}; 
     }, [history]);
 
-    // グラフ用にデータを整形（各時点でのカテゴリ平均値を計算して追加）
     const chartData = useMemo(() => {
         return [...history].reverse().map(item => {
             const baseData = {
                 date: new Date(item.date).toLocaleDateString('ja-JP', { month: 'short', day: 'numeric' }),
                 ...item.scores
             };
-            
-            // カテゴリごとの平均値を計算してデータに追加
             Object.values(SKILL_MAP).forEach(cat => {
                 const total = cat.skills.reduce((sum, skill) => sum + (item.scores[skill] || 0), 0);
                 const avg = total / cat.skills.length;
-                baseData[cat.label] = avg; // キー名を「前に踏み出す力」などにする
+                baseData[cat.label] = avg; 
             });
-
             return baseData;
         });
     }, [history]);
 
-    // タイムラインに表示する項目のリスト生成（ソート処理含む）
     const displaySkillsForTimeline = useMemo(() => {
         let targets = [];
-        
-        // 最新のグラフデータ（chartDataの最後尾）を取得してソートに使用
-        // chartDataはreverse済み（古い順）なので、最後の要素が最新
         const latestChartData = chartData[chartData.length - 1] || {};
 
         if (viewMode === 'summary') {
-            // Summaryモード：3つのカテゴリ名を表示対象にする
             targets = Object.values(SKILL_MAP).map(v => v.label);
         } else if (selectedCategory && SKILL_MAP[selectedCategory]) {
-            // Detailモード：選択されたカテゴリ内のスキルを表示対象にする
             targets = SKILL_MAP[selectedCategory].skills;
         }
         
-        // 最新のスコア（カテゴリ平均 or 個別スキル）が高い順にソート
         return targets.sort((a, b) => (latestChartData[b] || 0) - (latestChartData[a] || 0));
     }, [viewMode, selectedCategory, chartData]);
 
@@ -137,21 +136,12 @@ const Dashboard = () => {
 
     const CustomTick = ({ payload, x, y, textAnchor, ...rest }) => {
         const label = payload.value;
-        let color = '#64748b';
-        let isClickable = false;
-
-        if (viewMode === 'summary') {
-            const found = Object.values(SKILL_MAP).find(v => v.label === label);
-            if (found) {
-                color = found.color;
-                isClickable = true;
-            }
-        } else {
-            color = getSkillColor(label);
-        }
+        const color = getSkillColor(label);
+        const isClickable = viewMode === 'summary' && Object.values(SKILL_MAP).some(v => v.label === label);
 
         return (
             <text
+                {...rest}
                 x={x}
                 y={y}
                 dy={4}
@@ -166,9 +156,37 @@ const Dashboard = () => {
                         if (found) { setSelectedCategory(found[0]); setViewMode('detail'); }
                     }
                 }}
-                {...rest}
             >
                 {label}
+            </text>
+        );
+    };
+
+    const CustomRadarDot = (props) => {
+        const { cx, cy, payload } = props;
+        return (
+            <circle cx={cx} cy={cy} r={5} fill={payload.color} stroke="#fff" strokeWidth={2} />
+        );
+    };
+
+    // 【追加】タイムラインの各ドットの上に数値を表示するカスタムコンポーネント
+    const CustomLineLabel = (props) => {
+        const { x, y, value, stroke } = props;
+        // 背景のグリッド線と重なっても見やすいように、白い縁取り（stroke）をつけています
+        return (
+            <text 
+                x={x} 
+                y={y} 
+                dy={-10} // ドットの少し上に表示
+                fill={stroke} 
+                fontSize={12} 
+                fontWeight="bold" 
+                textAnchor="middle"
+                stroke="#fff" 
+                strokeWidth={3} 
+                paintOrder="stroke"
+            >
+                {toFiveStep(value)}
             </text>
         );
     };
@@ -198,7 +216,7 @@ const Dashboard = () => {
         return category.skills.map(name => ({
             subject: name,
             score: latest[name] || 0,
-            color: category.color
+            color: getSkillColor(name)
         }));
     };
 
@@ -238,8 +256,9 @@ const Dashboard = () => {
                                         dataKey="score" 
                                         stroke={viewMode === 'summary' ? "#6366f1" : SKILL_MAP[selectedCategory].color} 
                                         fill={viewMode === 'summary' ? "#6366f1" : SKILL_MAP[selectedCategory].color} 
-                                        fillOpacity={0.4} 
+                                        fillOpacity={0.2} 
                                         strokeWidth={3}
+                                        dot={<CustomRadarDot />}
                                     />
                                 </RadarChart>
                             </ResponsiveContainer>
@@ -252,20 +271,18 @@ const Dashboard = () => {
                                 成長タイムライン：{viewMode === 'summary' ? '3つの力の推移' : SKILL_MAP[selectedCategory].label}
                             </Typography>
                             <Typography variant="body2" sx={{ color: '#64748b' }}>
-                                ※ 最新スコアが高い順に表示されています。<br/>
-                                {viewMode === 'summary' 
-                                    ? "レーダーチャートの項目名をクリックすると詳細に絞り込めます。" 
-                                    : "左上の矢印ボタンで全体表示に戻ります。"}
+                                ※ 最新スコアが高い順に表示されています。
                             </Typography>
                         </Box>
                         <Box sx={{ height: 400, width: '100%' }}>
                             <ResponsiveContainer width="100%" height="100%">
                                 <LineChart 
                                     data={chartData} 
-                                    margin={{ top: 5, right: 30, left: 0, bottom: 5 }}
+                                    margin={{ top: 20, right: 30, left: 10, bottom: 5 }} 
                                 >
                                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
                                     <XAxis dataKey="date" tick={{fontSize: 12, fill: '#64748b'}} />
+                                    {/* Y軸は0-100ですが、表示上は5段階評価の数値を表示するようにしても良いかもしれません */}
                                     <YAxis domain={[0, 100]} width={35} tick={{fontSize: 12, fill: '#64748b'}} />
                                     <Tooltip 
                                         contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 20px rgba(0,0,0,0.1)' }}
@@ -283,6 +300,8 @@ const Dashboard = () => {
                                             dot={{ r: 4 }}
                                             activeDot={{ r: 6 }}
                                             connectNulls
+                                            // 【ここが修正ポイント】ラベル表示を追加
+                                            label={<CustomLineLabel />}
                                         />
                                     ))}
                                 </LineChart>
